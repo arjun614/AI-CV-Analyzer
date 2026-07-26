@@ -198,9 +198,9 @@ Candidate Analysis
 
 **Arjun Maheshwari**
 
-LinkedIn: *(Add your profile here)*
+LinkedIn: linkedin.com/in/arjunmaheshwari04/
 
-GitHub: *(Add your GitHub profile here)*
+GitHub: github.com/arjun614
 
 ---
 
