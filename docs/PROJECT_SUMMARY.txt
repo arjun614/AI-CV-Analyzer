@@ -1,0 +1,158 @@
+Project: CV Analyser
+
+Purpose
+- Automated CV/resume analysis against a job description to produce a match score, identify skills, and generate actionable strengths/areas for improvement and resume suggestions.
+
+High-level Architecture
+- Frontend: Single-page app (Vite + React) providing file upload UI, job description input, progress feedback, and results display.
+- Backend: Express.js API that accepts uploaded PDF CVs, extracts text (pdf-parse), runs NLP-based analysis (keyword extraction, TF-IDF, heuristics), computes job-match scores, and returns structured insights.
+- File storage: Uploaded PDFs saved to `uploads/` temporarily; backend cleans old files.
+- Communication: Frontend calls backend REST endpoints (`/api/upload` and `/api/analyze`) using JSON and multipart form data.
+
+Tech Stack
+- Frontend: React (JSX), Vite, CSS
+  - Key files: frontend/src/App.jsx, frontend/src/components/* (FileUpload.jsx, ResultsTable.jsx, ExportResults.jsx, etc.)
+- Backend: Node.js + Express
+  - Key files: backend/server.js, backend/routes/upload.js, backend/routes/api.js, backend/routes/cvAnalysis.js
+- NLP / parsing libs: `pdf-parse`, `natural`, `compromise`, `keyword-extractor`, `string-similarity`
+- Utilities: `multer` for uploads, `winston` for logging, `Joi` for validation
+
+Data Flow (Detailed)
+1. User opens frontend and provides a job description and selects one or more CV PDFs to upload.
+2. Frontend `FileUpload` component posts files + jobDescription to `POST /api/upload` (multipart/form-data). `upload.js` handles storing files in `uploads/` and responds with file metadata.
+3. Frontend then sends a request to `POST /api/analyze` (or the `/api/upload` response is used together with `analyze` call depending on UI flow). The analysis endpoint expects JSON: `{ files: [{id, path, originalName}, ...], jobDescription }`.
+4. Backend `cvAnalysis.js` iterates each file; for each:
+   - Reads PDF using `pdf-parse` (with fallback parsing options for robustness).
+   - Preprocesses text (lowercase, remove noise while preserving programming symbols).
+   - `extractSkills(text)`:
+     - Uses `compromise` to extract named entities and `keyword-extractor` for top keywords.
+     - Matches tokens against curated skill databases (`TECH_SKILLS`, `SOFT_SKILLS`, `COOKING_SKILLS`) to categorize technical/soft skills.
+   - `extractExperience(text)`:
+     - Uses regex + `compromise` to detect years of experience, job titles, companies, education keywords.
+   - `calculateJobMatch(cvSkills, cvExperience, jobDescription)`:
+     - Extracts job-side skills and keywords.
+     - Computes overlaps (technical/soft), string similarity on keywords, TF-IDF vectors, and an aggregated weighted score with penalties for field mismatch.
+     - Returns `score` (0-100), `breakdown` object with point contributions, `matchingSkills`, and `missingSkills`.
+   - `generateInsights(cvData, jobMatch)` (enhanced):
+     - Produces prioritized, actionable `strengths` and `weaknesses`.
+     - Returns `suggestedSummary` and `suggestedBullets` (concrete resume bullets and formatting tips).
+5. Backend compiles results per CV: score, breakdown, skills, strengths, weaknesses, suggested summary/bullets, and timestamps. Results are sorted and returned to frontend.
+6. Frontend renders results in `ResultsTable` and `ExportResults` components; users can view, copy, or export suggestions.
+
+Key Backend Functions (what to explain in viva)
+- `preprocessText(text)`: standardizes text for matching and NLP.
+- `extractSkills(text)`: combines dictionary matching and NLP entity extraction; returns technical skills, soft skills, keywords, entities.
+- `extractExperience(text)`: extracts years, job titles, companies, education.
+- `calculateJobMatch(...)`: computes overlap, TF-IDF similarity, weighted scoring, and missing skills.
+- `generateInsights(...)`: converts scores into human-friendly, prioritized recommendations and resume-level templates.
+
+Frontend Summary (what each component does)
+- `FileUpload.jsx`: Manages file selection and posting to the backend. Shows upload progress and basic validation (file type/size).
+- `AnalysisProgress.jsx`: Shows status while backend processes files (spinner, progress bars per file).
+- `ResultsTable.jsx`: Displays results: score, rank, detected skills, strengths, weaknesses. Supports viewing details for each CV.
+- `ExportResults.jsx`: Lets users download CSV/TXT of analysis including suggested summary and bullets.
+- `App.jsx`: Main orchestration: holds app state (selected files, jobDescription, results), calls upload/analyze endpoints, routes UI between steps.
+
+Endpoints (as implemented)
+- GET `/api/health` — basic health check.
+- GET `/api/docs` — simple API documentation.
+- POST `/api/upload` — multipart upload for CV PDFs; stores files and returns metadata.
+- POST `/api/analyze` (mounted at `/api/analyze` in `api.js`) — accepts JSON containing file metadata + jobDescription; returns analysis results.
+- GET `/api/analyze/stats` — returns supported skills counts and feature list.
+- GET `/api/upload/status/:uploadId` — (placeholder) returns upload status.
+- DELETE `/api/upload/cleanup` — server-side cleanup of old files.
+
+How the frontend and backend link (network and data contracts)
+- Upload contract: frontend sends `multipart/form-data` with `cvFiles` fields and `jobDescription` string. Backend responds with `files` array: each entry contains `id`, `path`, `originalName`, `filename`, etc.
+- Analyze contract: frontend sends JSON like:
+  {
+    "files": [{ "id": "<uuid>", "path": "<server-path>", "originalName": "name.pdf" }],
+    "jobDescription": "<text of JD>"
+  }
+  Backend returns: `{ success: true, results: [ { id, fileName, score, breakdown, skills, strengths, weaknesses, suggestedSummary, suggestedBullets, ... } ] }`.
+- Security note: Path values are server file paths created by `multer`; ensure backend validates and reads only from `uploads/` to avoid path traversal risks.
+
+How scoring & insights map to UI elements (to explain live demo)
+- Overall score → main badge/column in `ResultsTable`.
+- Breakdown (technical/soft/keywords/experience) → tooltip or expandable section showing contribution values.
+- `strengths` and `weaknesses` → listed under each CV; `suggestedSummary` and `suggestedBullets` appear as copyable text or in a modal.
+
+Run & Test Locally (commands)
+1. Install deps
+   - Backend:
+     cd backend
+     npm install
+   - Frontend:
+     cd frontend
+     npm install
+
+2. Start services
+   - Backend:
+     cd backend
+     node server.js
+   - Frontend (dev):
+     cd frontend
+     npm run dev
+
+3. Manual test flow
+   - Open frontend (usually on http://localhost:5173), enter a job description, upload one or more PDFs, submit, and view results.
+   - Or use curl to upload:
+     curl -F "jobDescription=$(<jd.txt)" -F "cvFiles=@/path/to/cv.pdf" http://localhost:3000/api/upload
+
+Sample Output (trimmed JSON)
+{
+  "id": "...",
+  "fileName": "Candidate.pdf",
+  "score": 72,
+  "breakdown": { "technicalSkills": 28, "softSkills": 10, "keywords": 12, "experience": 9 },
+  "skills": ["javascript","react","node.js","communication","teamwork"],
+  "strengths": ["Good alignment with key role skills: javascript, react, node.js..."],
+  "weaknesses": ["Missing high-priority job skills: typescript, aws..."],
+  "suggestedSummary": "Experienced professional with 3 year(s) of experience in javascript, react, node.js...",
+  "suggestedBullets": ["Example experience bullet: ..."]
+}
+
+Possible Viva Questions & Suggested Answers
+- Q: How do you extract skills from resumes?
+  A: We preprocess text and use a hybrid approach: a curated skills dictionary for direct matching and NLP/entity extraction (compromise + keyword-extractor) for broader coverage; results are deduplicated and categorized.
+
+- Q: How is job matching scored?
+  A: We compute overlaps for technical and soft skills, use string-similarity on keywords, apply TF-IDF vectors for relevance, add an experience-based score, then apply penalties for field mismatch (e.g., tech CV for non-tech job). We combine weighted components into a 0–100 score and return a breakdown of contributions.
+
+- Q: How do you handle different PDF qualities?
+  A: We attempt parsing with `pdf-parse` default options and try alternate settings if it fails; we also reject PDFs with insufficient text and provide clear error messaging. The system logs parsing issues via `winston`.
+
+- Q: How can this be extended to support other file types?
+  A: Add parsers for DOCX (e.g., `mammoth`), plain text, or OCR for scanned images (e.g., `tesseract.js`) and normalize outputs into the same analysis pipeline.
+
+- Q: How does the frontend ensure a responsive experience?
+  A: Progress components show upload/analysis status; file uploads use `multer` and the backend processes files serially with robust error handling; for large batches, implement async processing with job queues (Bull/Redis) and polling or WebSockets for updates.
+
+Security, Limitations & Improvements
+- Current limits: PDFs only, 10MB per file, 10 files max. Add authentication, rate-limiting, and per-user file isolation for production.
+- Improvement ideas:
+  - Add async job queue for large batch processing and downloadable job reports.
+  - Use vector search / embeddings (sentence-transformers) for semantic matching.
+  - Add language detection and multi-language support.
+  - Improve UI to let users edit suggested summary and export directly to DOCX or LinkedIn format.
+
+Where to look in the code for key logic
+- Core analysis & insight generation: `backend/routes/cvAnalysis.js` (functions: `preprocessText`, `extractSkills`, `extractExperience`, `calculateJobMatch`, `generateInsights`).
+- Upload handling: `backend/routes/upload.js` (multer configuration, validation, cleanup).
+- Frontend UI flow: `frontend/src/App.jsx`, `frontend/src/components/FileUpload.jsx`, `ResultsTable.jsx`, `ExportResults.jsx`.
+
+Notes for your presentation
+- Demonstrate a live upload + analysis; show raw JSON from the backend and then show the formatted UI.
+- Explain the hybrid approach (rule-based + statistical) and why it helps: fast dictionary matches for exact tech terms, NLP for fuzzy/semantic detection.
+- Emphasize practical value: the system helps candidates tailor resumes rapidly and helps recruiters shortlist by scoring.
+
+Files added/modified during this session
+- `backend/routes/cvAnalysis.js` — improved `generateInsights` to return richer, actionable suggestions and templates.
+- `backend/test_insights.js` — small test harness used to verify insights generation.
+- `docs/PROJECT_SUMMARY.txt` — this file (you are reading it now).
+
+If you want, I can:
+- Convert this text file to a formatted Markdown summary with code links and line references.
+- Add a small demo script that runs a sample CV through the backend and saves the output JSON to `examples/`.
+
+--- End of project summary ---

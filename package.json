@@ -1,0 +1,22 @@
+{
+  "name": "cv-analyser",
+  "version": "1.0.0",
+  "description": "AI-powered CV analysis tool with dark theme",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && npm start",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && npm install",
+    "clean": "rm -rf frontend/dist backend/uploads frontend/node_modules backend/node_modules node_modules",
+    "production": "npm run build && npm run start"
+  },
+  "keywords": ["cv", "resume", "analysis", "ai", "recruitment", "dark-theme"],
+  "author": "CV Analyser Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^7.6.0"
+  }
+}
